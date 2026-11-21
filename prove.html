@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>QuotaZone · prove grafiche</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+:root{--bg:#0f171d;--fg:#e6ecef;--mut:#94a5b0;--line:#2b3d49;color-scheme:dark}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:15px/1.35 system-ui,-apple-system,sans-serif}
+body{display:flex;flex-direction:column}
+header{padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:#15222b;border-bottom:1px solid var(--line)}
+h1{font-size:15px;margin:0 0 6px;font-weight:700}
+.row{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch}
+.row button{flex:0 0 auto;border:1px solid var(--line);background:#1d2d38;color:var(--fg);border-radius:8px;padding:7px 10px;font:600 13px system-ui}
+.row button[aria-pressed=true]{background:#e6ecef;color:#0f171d;border-color:#e6ecef}
+.row.small button{padding:5px 8px;font-size:12px}
+#desc{font-size:12.5px;color:var(--mut);margin:6px 0 0;min-height:2.6em}
+#ann{display:grid;grid-template-columns:2fr 1fr;min-height:62px}
+#ann>div{padding:7px 10px}
+#ann b{display:block;font:800 17px/1.1 system-ui;letter-spacing:.02em;text-transform:uppercase}
+#ann small{font-size:12px;opacity:.9}
+#map{flex:1;min-height:0;background:#cfd8dc}
+#legend{display:flex;flex-wrap:wrap;gap:6px 12px;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:#15222b;border-top:1px solid var(--line);font-size:12.5px}
+.lg{display:inline-flex;align-items:center;gap:6px}
+.sw{width:30px;height:18px;border-radius:3px;border:2px solid var(--c);background-color:var(--f)}
+canvas.qz{position:absolute;left:0;top:0;pointer-events:none}
+#states{display:none}
+</style></head><body>
+<header>
+  <h1>Prove grafiche · tocca una versione</h1>
+  <div class="row" id="variants"></div>
+  <div class="row small" id="places" style="margin-top:6px"></div>
+  <p id="desc"></p>
+</header>
+<div id="ann"><div id="annL"></div><div id="annR"></div></div>
+<div id="map"></div>
+<div id="legend"></div>
+<script src="vendor/leaflet.js"></script>
+<script>
+'use strict';
+// ------------------------------------------------------------------ palette
+const PAL = {
+  std: { q: ['#d32f2f', '#f57c00', '#f2c200', '#26b6d0', '#2e8b57'],
+         st: { prohib: ['#c42b2b', '#fff'], auth: ['#d96a00', '#fff'], cond: ['#e2b400', '#1d1600'], free: ['#2c7a4b', '#fff'] } },
+  // per chi confonde rosso/verde/arancio: scala da viola scuro a giallo chiaro, distinta per luminosità e per asse blu/giallo
+  cvd: { q: ['#4b1478', '#0b6fb0', '#56b4e9', '#e69f00', '#d9dee2'],
+         st: { prohib: ['#4b1478', '#fff'], auth: ['#0b6fb0', '#fff'], cond: ['#f0c93a', '#1d1600'], free: ['#e4e9ec', '#10202a'] } }
+};
+const BANDS = [0, 25, 45, 60, 120], LABEL = ['Max 0 m', 'Max 25 m', 'Max 45 m', 'Max 60 m', 'Libero'];
+const VARIANTS = [
+  { k: 'attuale', name: '1 · Attuale', pal: 'std', clean: false, hatch: false, labels: false,
+    d: 'Come adesso: rosso, arancio, giallo, azzurro. Le zone si sovrappongono e i colori si mescolano.' },
+  { k: 'colori', name: '2 · Colori daltonici', pal: 'cvd', clean: false, hatch: false, labels: false,
+    d: 'Stessa mappa, colori diversi: viola scuro = 0 m, blu = 25 m, azzurro = 45 m, ambra = 60 m. Più è scuro, più è vietato.' },
+  { k: 'tratteggi', name: '3 · + Tratteggi', pal: 'cvd', clean: false, hatch: true, labels: false,
+    d: 'Colori daltonici più un disegno diverso per fascia: righe fitte = 0 m, righe larghe = 25 m, puntini = 45 m, nessun disegno = 60 m.' },
+  { k: 'numeri', name: '4 · + Numeri', pal: 'cvd', clean: false, hatch: false, labels: true,
+    d: 'Colori daltonici più la quota massima scritta sulle zone: non serve distinguere il colore.' },
+  { k: 'pulita', name: '5 · Mappa pulita', pal: 'cvd', clean: true, hatch: true, labels: true,
+    d: 'In ogni punto solo la quota più bassa, senza cerchi e rettangoli sovrapposti; tratteggi e numeri. È la vista "Quota max" di D-Flight.' },
+  { k: 'pulita-std', name: '6 · Pulita, colori attuali', pal: 'std', clean: true, hatch: true, labels: true,
+    d: 'Mappa pulita con tratteggi e numeri, ma con i colori di adesso: per capire quanto aiutano forma e numeri da soli.' }
+];
+const PLACES = [
+  { n: 'Spoleto–Norcia', c: [42.80, 12.80], z: 10 }, { n: 'Firenze', c: [43.80, 11.22], z: 11 },
+  { n: 'Roma', c: [41.85, 12.55], z: 10 }, { n: 'Perugia (vicino)', c: [43.09, 12.50], z: 13 }
+];
+let V = VARIANTS[0];
+try { const s = new URLSearchParams(location.search).get('v'); V = VARIANTS.find(v => v.k === s) || V; } catch (e) {}
+
+// ------------------------------------------------------------------ dati
+const zones = [];
+function limitOf(f, g) {
+  if (String(f.restriction).toUpperCase() === 'NO_RESTRICTION') return 120;
+  let lo = g.lowerLimit || 0; if (String(g.uomDimensions || 'M').toUpperCase().startsWith('F')) lo *= 0.3048; return lo;
+}
+function active(f) {
+  const now = Date.now(), ap = f.applicability || [];
+  if (!ap.length) return true;
+  return ap.some(a => String(a.permanent).toUpperCase() === 'YES' ||
+    ((!a.startDateTime || Date.parse(a.startDateTime) <= now) && (!a.endDateTime || Date.parse(a.endDateTime) >= now)));
+}
+async function loadData() {
+  let url = null;
+  try { const r = await fetch('data/zone.json', { cache: 'no-cache' }); if (r.ok) url = 'data/zones.json.gz'; } catch (e) {}
+  if (!url) {
+    const m = /^([^.]+)\.github\.io$/i.exec(location.hostname);
+    const repo = location.pathname.split('/').filter(Boolean)[0];
+    const r = await fetch('https://api.github.com/repos/' + m[1] + '/' + repo + '/contents/data');
+    const list = (await r.json()).filter(f => /^qz_zone_.*\.json\.gz$/.test(f.name)).sort((a, b) => a.name < b.name ? 1 : -1);
+    url = 'data/' + list[0].name;
+  }
+  const res = await fetch(url);
+  const txt = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+  for (const f of JSON.parse(txt).features) for (const g of f.geometry || []) {
+    const hp = g.horizontalProjection || {}; if (hp.type !== 'Polygon' || !hp.coordinates) continue;
+    const lim = limitOf(f, g); if (lim >= 120) continue;
+    const b = BANDS.findIndex(x => lim <= x + 0.5);
+    let x0 = 180, y0 = 90, x1 = -180, y1 = -90;
+    for (const [x, y] of hp.coordinates[0]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    zones.push({ rings: hp.coordinates, bbox: [x0, y0, x1, y1], band: b, act: active(f),
+      notam: /^NOTAM/.test(f.name) || f.otherReasonInfo === 'NOTAM', prohib: f.restriction === 'PROHIBITED', name: f.name });
+  }
+}
+
+// ------------------------------------------------------------------ disegno
+const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView(PLACES[0].c, PLACES[0].z);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap' }).addTo(map);
+L.control.scale({ imperial: false }).addTo(map);
+const cv = document.createElement('canvas'); cv.className = 'qz';
+map.getPanes().overlayPane.appendChild(cv);
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+function hexA(h, a) { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+function pattern(ctx, band, col) {
+  const s = [7, 12, 11, 0][band] * DPR; if (!s) return null;
+  const t = mk(s, s), c = t.getContext('2d'); c.strokeStyle = col; c.fillStyle = col;
+  if (band <= 1) {           // righe diagonali: fitte a 0 m, larghe a 25 m
+    c.lineWidth = (band === 0 ? 2.2 : 1.6) * DPR; c.beginPath();
+    const dir = band === 0 ? 1 : -1;
+    for (let o = -s; o <= s; o += s) { if (dir > 0) { c.moveTo(o, s); c.lineTo(o + s, 0); } else { c.moveTo(o, 0); c.lineTo(o + s, s); } }
+    c.stroke();
+  } else {                   // puntini a 45 m
+    c.beginPath(); c.arc(s / 2, s / 2, 1.6 * DPR, 0, 7); c.fill();
+  }
+  return ctx.createPattern(t, 'repeat');
+}
+function pathOf(ctx, z) {
+  ctx.beginPath();
+  for (const ring of z.rings) {
+    ring.forEach(([x, y], i) => { const p = map.latLngToContainerPoint([y, x]); i ? ctx.lineTo(p.x * DPR, p.y * DPR) : ctx.moveTo(p.x * DPR, p.y * DPR); });
+    ctx.closePath();
+  }
+}
+function inside(z, x, y) { // punto (lon,lat) dentro all'anello esterno
+  const r = z.rings[0]; let c = false;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const [xi, yi] = r[i], [xj, yj] = r[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+function draw() {
+  const size = map.getSize(), W = size.x * DPR, H = size.y * DPR;
+  cv.width = W; cv.height = H; cv.style.width = size.x + 'px'; cv.style.height = size.y + 'px';
+  L.DomUtil.setPosition(cv, map.containerPointToLayerPoint([0, 0]));
+  const ctx = cv.getContext('2d'), P = PAL[V.pal].q;
+  const b = map.getBounds().pad(0.1);
+  const vis = zones.filter(z => z.bbox[0] <= b.getEast() && z.bbox[2] >= b.getWest() && z.bbox[1] <= b.getNorth() && z.bbox[3] >= b.getSouth());
+  const act = vis.filter(z => z.act), off = vis.filter(z => !z.act);
+  const labels = [];
+  if (!V.clean) {
+    act.sort((a, c) => c.band - a.band).forEach(z => {
+      const col = P[z.band]; pathOf(ctx, z);
+      ctx.fillStyle = hexA(col, z.band === 0 ? 0.24 : 0.14); ctx.fill('evenodd');
+      if (V.hatch) { const pt = pattern(ctx, z.band, hexA(col, 0.55)); if (pt) { ctx.fillStyle = pt; ctx.fill('evenodd'); } }
+      ctx.setLineDash(z.notam ? [5 * DPR, 4 * DPR] : []);
+      ctx.strokeStyle = col; ctx.lineWidth = (z.prohib ? 2 : 1.2) * DPR; ctx.stroke();
+    });
+  } else {
+    const taken = mk(W, H), tc = taken.getContext('2d');
+    ownMasks.length = 0;
+    for (let band = 0; band < 4; band++) {
+      const list = act.filter(z => z.band === band); if (!list.length) continue;
+      const col = P[band];
+      const own = mk(W, H), o = own.getContext('2d'); o.fillStyle = '#000';
+      list.forEach(z => { pathOf(o, z); o.fill('evenodd'); });
+      o.globalCompositeOperation = 'destination-out'; o.drawImage(taken, 0, 0);   // tolgo le fasce più restrittive
+      tc.fillStyle = '#000'; list.forEach(z => { pathOf(tc, z); tc.fill('evenodd'); });
+      const fill = mk(W, H), f = fill.getContext('2d'); f.drawImage(own, 0, 0);
+      f.globalCompositeOperation = 'source-in'; f.fillStyle = hexA(col, band === 0 ? 0.34 : 0.26); f.fillRect(0, 0, W, H);
+      if (V.hatch) { const pt = pattern(f, band, hexA(col, 0.75)); if (pt) { f.globalCompositeOperation = 'source-atop'; f.fillStyle = pt; f.fillRect(0, 0, W, H); } }
+      const st = mk(W, H), s = st.getContext('2d'); s.strokeStyle = col; s.lineWidth = 1.6 * DPR;
+      list.forEach(z => { pathOf(s, z); s.stroke(); });
+      s.globalCompositeOperation = 'destination-in'; s.drawImage(own, 0, 0);
+      ctx.drawImage(fill, 0, 0); ctx.drawImage(st, 0, 0);
+      ownMasks[band] = own;
+    }
+  }
+  // zone non attive (NOTAM futuri): solo bordo tratteggiato
+  off.forEach(z => { pathOf(ctx, z); ctx.setLineDash([5 * DPR, 4 * DPR]); ctx.strokeStyle = hexA(P[z.band], 0.7); ctx.lineWidth = 1 * DPR; ctx.stroke(); });
+  ctx.setLineDash([]);
+  if (V.labels) drawLabels(ctx, act, P);
+}
+const ownMasks = [];
+function drawLabels(ctx, act, P) {
+  const placed = [], minD = 64 * DPR;
+  // prima le zone grandi sullo schermo, di ogni fascia; scarto quelle minuscole
+  const px = z => { const a = map.latLngToContainerPoint([z.bbox[1], z.bbox[0]]), c = map.latLngToContainerPoint([z.bbox[3], z.bbox[2]]); return Math.abs(c.x - a.x) * Math.abs(c.y - a.y); };
+  const cand = act.map(z => [z, px(z)]).filter(e => e[1] > 1600).sort((a, c) => c[1] - a[1]).map(e => e[0]);
+  for (const z of cand) {
+    if (placed.length > 60) break;
+    // cerco un punto interno, visibile sullo schermo e (mappa pulita) non coperto da una fascia più restrittiva
+    const vb = map.getBounds();
+    const x0 = Math.max(z.bbox[0], vb.getWest()), x1 = Math.min(z.bbox[2], vb.getEast());
+    const y0 = Math.max(z.bbox[1], vb.getSouth()), y1 = Math.min(z.bbox[3], vb.getNorth());
+    if (x0 >= x1 || y0 >= y1) continue;
+    let found = null;
+    for (const [fx, fy] of [[.5,.5],[.3,.5],[.7,.5],[.5,.3],[.5,.7],[.3,.3],[.7,.7],[.3,.7],[.7,.3],[.15,.5],[.85,.5],[.5,.15],[.5,.85]]) {
+      const x = x0 + (x1 - x0) * fx, y = y0 + (y1 - y0) * fy;
+      if (!inside(z, x, y)) continue;
+      const p = map.latLngToContainerPoint([y, x]), px = p.x * DPR, py = p.y * DPR;
+      if (px < 30 * DPR || py < 16 * DPR || px > ctx.canvas.width - 30 * DPR || py > ctx.canvas.height - 16 * DPR) continue;
+      if (V.clean && ownMasks[z.band] && !ownMasks[z.band].getContext('2d').getImageData(px | 0, py | 0, 1, 1).data[3]) continue;
+      if (placed.some(q => Math.hypot(q[0] - px, q[1] - py) < minD)) continue;
+      found = [px, py]; break;
+    }
+    if (!found) continue;
+    const [px, py] = found;
+    placed.push([px, py]);
+    const t = BANDS[z.band] + ' m'; ctx.font = `800 ${13 * DPR}px system-ui`;
+    const w = ctx.measureText(t).width + 12 * DPR, h = 20 * DPR;
+    ctx.fillStyle = 'rgba(255,255,255,.93)'; ctx.strokeStyle = P[z.band]; ctx.lineWidth = 2.5 * DPR;
+    ctx.beginPath(); ctx.roundRect(px - w / 2, py - h / 2, w, h, 5 * DPR); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#10202a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, px, py + 0.5 * DPR);
+  }
+}
+map.on('moveend zoomend resize', draw);
+
+// ------------------------------------------------------------------ interfaccia
+function ann() {
+  const S = PAL[V.pal].st;
+  const box = (k, t, sub) => `<div style="background:${S[k][0]};color:${S[k][1]};height:100%"><b>${t}</b><small>${sub}</small></div>`;
+  const i = (Math.floor(Date.now() / 2500)) % 4;
+  const fl = [['prohib', 'Vietato', 'Area P · vietata agli UAS'], ['auth', 'Serve autorizzazione', 'Max 25 m senza autorizzazione'],
+              ['cond', 'Attenzione', 'NOTAM attivo nelle vicinanze'], ['free', 'Volo libero fino a 120 m', 'Nessuna zona qui']][i];
+  const wx = [['prohib', 'No volo'], ['auth', 'Cautela'], ['cond', 'Attenzione'], ['free', 'Meteo OK']][i];
+  document.getElementById('annL').innerHTML = box(fl[0], fl[1], fl[2]);
+  document.getElementById('annR').innerHTML = box(wx[0], 'Meteo', wx[1]);
+  document.getElementById('annL').style.padding = document.getElementById('annR').style.padding = '0';
+}
+function legend() {
+  const P = PAL[V.pal].q;
+  document.getElementById('legend').innerHTML = [0, 1, 2, 3].map(b => {
+    let bg = hexA(P[b], b === 0 ? 0.3 : 0.2);
+    if (V.hatch && b < 2) bg = `repeating-linear-gradient(${b ? -45 : 45}deg, ${hexA(P[b], 0.85)} 0 ${b ? 1.6 : 2.2}px, ${hexA(P[b], 0.2)} 0 ${b ? 8 : 5}px)`;
+    if (V.hatch && b === 2) bg = `radial-gradient(${hexA(P[b], 0.9)} 1.6px, ${hexA(P[b], 0.2)} 2px) 0 0/8px 8px`;
+    return `<span class="lg"><span class="sw" style="--c:${P[b]};background:${bg}"></span>${LABEL[b]}</span>`;
+  }).join('') + '<span class="lg"><span class="sw" style="--c:#888;background:none;border-style:dashed"></span>NOTAM non attivo</span>';
+}
+function ui() {
+  document.getElementById('variants').innerHTML = VARIANTS.map(v => `<button data-k="${v.k}" aria-pressed="${v === V}">${v.name}</button>`).join('');
+  document.getElementById('desc').textContent = V.d;
+  document.querySelectorAll('#variants button').forEach(b => b.onclick = () => {
+    V = VARIANTS.find(v => v.k === b.dataset.k); history.replaceState(null, '', '?v=' + V.k); ui(); legend(); ann(); draw();
+  });
+}
+document.getElementById('places').innerHTML = PLACES.map((p, i) => `<button data-i="${i}">${p.n}</button>`).join('');
+document.querySelectorAll('#places button').forEach(b => b.onclick = () => { const p = PLACES[+b.dataset.i]; map.setView(p.c, p.z); });
+ui(); legend(); ann(); setInterval(ann, 2500);
+document.getElementById('desc').textContent = 'Carico le zone…';
+loadData().then(() => { document.getElementById('desc').textContent = V.d; draw(); })
+  .catch(e => { document.getElementById('desc').textContent = 'Errore nel caricare le zone: ' + e.message; });
+</script>
+</body></html>

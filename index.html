@@ -77,8 +77,21 @@
     </div>
 
     <div class="panel" data-panel="filters" hidden>
+      <h3 class="sec">Preferenze</h3>
+      <div class="pref-k">Schema colori</div>
+      <div class="seg" id="segPalette" role="group" aria-label="Schema colori">
+        <button type="button" data-palette="std" aria-pressed="true">Standard</button>
+        <button type="button" data-palette="cvd" aria-pressed="false">Daltonici (rosso/verde)</button>
+      </div>
+      <div class="pref-k">Tema</div>
+      <div class="seg three" id="segTheme" role="group" aria-label="Tema">
+        <button type="button" data-theme-opt="auto" aria-pressed="true">Automatico</button>
+        <button type="button" data-theme-opt="light" aria-pressed="false">Giorno</button>
+        <button type="button" data-theme-opt="dark" aria-pressed="false">Notte</button>
+      </div>
+      <p class="fine">Daltonici: viola = vietato o 0 m, blu = serve autorizzazione o 25 m, azzurro = 45 m, ambra = 60 m, grigio = libero. Automatico segue il giorno/notte del telefono.</p>
       <h3 class="sec">Colora per</h3>
-      <div class="seg" role="group" aria-label="Colorazione zone">
+      <div class="seg" id="segMode" role="group" aria-label="Colorazione zone">
         <button type="button" data-mode="quota" aria-pressed="true">Quota max (come D-Flight)</button>
         <button type="button" data-mode="tipo" aria-pressed="false">Tipo di restrizione</button>
       </div>

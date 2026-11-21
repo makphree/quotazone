@@ -346,9 +346,10 @@
     const m = limitMeters(z);
     if (m === 0) return z.restriction === 'PROHIBITED' ? { cls: 'prohib', label: 'Vietato' } : z.restriction === 'REQ_AUTHORISATION' ? { cls: 'auth', label: 'Serve autorizzazione' } : { cls: RESTR[z.restriction].cls, label: RESTR[z.restriction].label };
     if (z.restriction === 'NO_RESTRICTION') return { cls: 'free', label: 'Nessuna restrizione' };
-    if (isFinite(m)) return { cls: 'cond', label: 'Max ' + limitLabel(z).replace(/ AGL$/, '') };
+    if (isFinite(m)) return { cls: 'cond', q: bandOf(z).k, label: 'Max ' + limitLabel(z).replace(/ AGL$/, '') };
     return { cls: RESTR[z.restriction].cls, label: RESTR[z.restriction].label };
   }
+  const badgeCls = st => st.cls + (st.q ? ' ' + st.q : '');
   function distToZone(z, lat, lng) {
     const pt = turf.point([lng, lat]);
     const polys = z.geometry.type === 'Polygon' ? [z.geometry.coordinates] : z.geometry.coordinates;
@@ -464,7 +465,7 @@
     const auth = a ? [a.name, a.service, a.phone, a.email].filter(Boolean).join(' · ') : '';
     return '<div class="zone">' +
       '<div class="zone-head"><span class="zone-name">' + esc(z.name) + '</span><span class="zone-alt">' + esc(fmtLayer(z.layer)) + '</span></div>' +
-      '<div class="zone-badges"><span class="badge ' + r.cls + '">' + esc(r.label) + '</span><span class="badge ghost">' + esc(CATS[z.category] || z.category) + '</span>' + timeBadge + (extra || '') + '</div>' +
+      '<div class="zone-badges"><span class="badge ' + badgeCls(r) + '">' + esc(r.label) + '</span><span class="badge ghost">' + esc(CATS[z.category] || z.category) + '</span>' + timeBadge + (extra || '') + '</div>' +
       (z.layer && z.layer.lower > 0 && z.restriction !== 'NO_RESTRICTION' ? '<div class="zone-meta">Fino a ' + esc(limitLabel(z)) + ' volo libero; sopra ' + (z.restriction === 'PROHIBITED' ? 'vietato' : 'serve autorizzazione') + '.</div>' : '') +
       (reasons ? '<div class="zone-meta">Motivo: ' + esc(reasons) + (z.reasonInfo ? ' — ' + esc(z.reasonInfo) : '') + '</div>' : '') +
       (z.message ? (z.message.length > 180
@@ -506,7 +507,7 @@
     else list.innerHTML = inside.map(z => zoneCard(z)).join('');
     if (insideInactive.length) list.innerHTML += insideInactive.map(z => zoneCard(z)).join('');
     const nz = nearZones(t.lat, t.lng, inside);
-    near.innerHTML = nz.length ? nz.map(o => '<div class="near"><span class="badge ' + statusOf(o.z).cls + '">' + esc(statusOf(o.z).label) + '</span><span class="near-name">' + esc(o.z.name) + '</span><span class="near-d">' + fmtDist(o.d) + '</span></div>').join('')
+    near.innerHTML = nz.length ? nz.map(o => '<div class="near"><span class="badge ' + badgeCls(statusOf(o.z)) + '">' + esc(statusOf(o.z).label) + '</span><span class="near-name">' + esc(o.z.name) + '</span><span class="near-d">' + fmtDist(o.d) + '</span></div>').join('')
       : '<div class="empty">Nessuna zona entro ' + fmtDist(NEAR_RADIUS_M) + '.</div>';
   }
 
@@ -682,7 +683,7 @@
       state.filters.reason[btn.dataset.reason] = on; saveFilters();
     }));
     $('#fltExpired').checked = !!state.filters.expired;
-    $$('.seg button').forEach(btn => btn.setAttribute('aria-pressed', String(btn.dataset.mode === state.colorMode)));
+    $$('#segMode button').forEach(btn => btn.setAttribute('aria-pressed', String(btn.dataset.mode === state.colorMode)));
     renderLegend();
   }
   function renderLegend() {
@@ -691,12 +692,31 @@
       : RESTR_ORDER.filter(k => state.zones.some(z => z.restriction === k)).map(k => [RESTR[k].css, RESTR[k].label]);
     $('#legend').innerHTML = items.map(i => '<span class="lg"><span class="swatch" style="--b:var(' + i[0] + ')"></span>' + esc(i[1]) + '</span>').join('');
   }
-  $$('.seg button').forEach(btn => btn.addEventListener('click', () => {
+  $$('#segMode button').forEach(btn => btn.addEventListener('click', () => {
     state.colorMode = btn.dataset.mode; ls.set('colorMode', state.colorMode);
-    $$('.seg button').forEach(x => x.setAttribute('aria-pressed', String(x === btn)));
+    $$('#segMode button').forEach(x => x.setAttribute('aria-pressed', String(x === btn)));
     renderLegend(); drawZones();
   }));
   function saveFilters() { ls.set('filters', state.filters); drawZones(); }
+
+  // ---------------------------------------------------------------- preferenze: schema colori e tema
+  const prefs = { palette: ls.get('palette', 'std'), theme: ls.get('theme', 'auto') };
+  function applyPrefs() {
+    const root = document.documentElement;
+    if (prefs.palette === 'cvd') root.dataset.palette = 'cvd'; else delete root.dataset.palette;
+    if (prefs.theme === 'auto') delete root.dataset.theme; else root.dataset.theme = prefs.theme;
+    const dark = prefs.theme === 'dark' || (prefs.theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.content = dark ? '#0e171d' : '#16384f';
+    $$('#segPalette button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.palette === prefs.palette)));
+    $$('#segTheme button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeOpt === prefs.theme)));
+  }
+  applyPrefs();
+  $$('#segPalette button').forEach(b => b.addEventListener('click', () => {
+    prefs.palette = b.dataset.palette; ls.set('palette', prefs.palette); applyPrefs(); renderLegend(); drawZones(); renderAll();
+  }));
+  $$('#segTheme button').forEach(b => b.addEventListener('click', () => {
+    prefs.theme = b.dataset.themeOpt; ls.set('theme', prefs.theme); applyPrefs(); renderLegend(); drawZones(); renderAll();
+  }));
   $('#fltExpired').addEventListener('change', e => { state.filters.expired = e.target.checked; saveFilters(); });
   $('#optFollow').addEventListener('change', e => setFollow(e.target.checked));
   $('#optWake').addEventListener('change', e => setWake(e.target.checked));
@@ -729,7 +749,7 @@
     if (!state.points.length) { el.innerHTML = '<div class="empty">Nessun punto salvato. Tieni premuto sulla mappa o usa il pulsante segnaposto per salvare un punto di decollo.</div>'; return; }
     el.innerHTML = state.points.map(p => {
       const z = zonesAt(p.lat, p.lng, false)[0];
-      const badge = z ? '<span class="badge ' + statusOf(z).cls + '">' + esc(statusOf(z).label) + '</span>' : '<span class="badge ghost">fuori zone</span>';
+      const badge = z ? '<span class="badge ' + badgeCls(statusOf(z)) + '">' + esc(statusOf(z).label) + '</span>' : '<span class="badge ghost">fuori zone</span>';
       return '<div class="pt" data-id="' + p.id + '"><span class="pt-name">' + esc(p.name) + '</span>' + badge +
         '<span class="pt-sub">' + (p.note ? esc(p.note) + ' · ' : '') + fmtCoord(p.lat, p.lng) + (z ? ' · ' + esc(z.name) : '') + '</span>' +
         '<span class="pt-actions"><button class="link-btn" data-act="go">Mostra</button><button class="link-btn danger" data-act="del">Elimina</button></span></div>';
@@ -910,7 +930,7 @@
     if (o.night) add(1, 'È buio: in volo notturno controlla luci e regole');
     return { level: lv, reasons: rs.sort((a, b) => b.l - a.l) };
   }
-  const LV = [{ cls: 'go', label: 'Meteo adatto al volo', short: 'Meteo OK', band: 'OK', col: 'var(--st-free)' },
+  const LV = [{ cls: 'go', label: 'Meteo adatto al volo', short: 'Meteo OK', band: 'OK', col: 'var(--st-free-ink)' },
               { cls: 'watch', label: 'Meteo da tenere d’occhio', short: 'Attenzione', band: 'Attenzione', col: 'var(--st-cond)' },
               { cls: 'caution', label: 'Volo con cautela', short: 'Cautela', band: 'Cautela', col: 'var(--st-auth)' },
               { cls: 'nogo', label: 'Volo sconsigliato', short: 'Sconsigliato', band: 'No volo', col: 'var(--st-prohib)' }];
@@ -1193,7 +1213,7 @@
     drawPoints(); renderPoints();
     renderAll(); syncSheetH();
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    if (mq.addEventListener) mq.addEventListener('change', drawZones);
+    if (mq.addEventListener) mq.addEventListener('change', () => { applyPrefs(); drawZones(); });
   }
   boot();
 
