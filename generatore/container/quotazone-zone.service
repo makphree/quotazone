@@ -1,0 +1,18 @@
+[Unit]
+Description=QuotaZone: ricostruisce le zone UAS da fonti indipendenti e le confronta con D-Flight
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=quotazone
+Group=quotazone
+EnvironmentFile=/etc/quotazone/config.env
+Environment=QZ_STATE_DIR=/var/lib/quotazone
+Environment=HOME=/var/lib/quotazone
+WorkingDirectory=/var/lib/quotazone
+ExecStart=/bin/bash /opt/quotazone/generatore/container/aggiorna_zone.sh
+TimeoutStartSec=90min
+Nice=10
+NoNewPrivileges=yes
+PrivateTmp=yes

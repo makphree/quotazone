@@ -1,0 +1,12 @@
+[Unit]
+Description=QuotaZone: zone proprie due volte al giorno
+
+[Timer]
+# 06:45 dopo il download D-Flight delle 06:30; 18:45 per i NOTAM del pomeriggio
+OnCalendar=*-*-* 06:45:00 Europe/Rome
+OnCalendar=*-*-* 18:45:00 Europe/Rome
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
