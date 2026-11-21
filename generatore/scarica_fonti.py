@@ -151,7 +151,7 @@ def osm_piste(src):
 def notam(src):
     import notam as nt
     tmp = os.path.join(src, 'notam_IT.json.nuovo')
-    retry(lambda: nt.scarica(tmp), tries=3, wait=120)
+    retry(lambda: nt.scarica(tmp), tries=1, wait=0)
     n = len(json.load(open(tmp))['notam'])
     if n < 100: raise ValueError(f'solo {n} NOTAM')
     os.replace(tmp, os.path.join(src, 'notam_IT.json'))
