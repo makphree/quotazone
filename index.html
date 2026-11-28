@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>QuotaZone</title>
+<meta name="description" content="Mappa personale delle zone geografiche UAS sulla posizione del telefono">
+<meta name="theme-color" content="#16384f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <header id="annunciator" class="st-none" aria-live="polite">
+    <div class="ann-flight">
+      <div class="ann-row">
+        <div class="ann-main">
+          <div id="annLabel" class="ann-label">Posizione non attiva</div>
+          <div id="annSub" class="ann-sub">Attiva il GPS per sapere in che zona ti trovi</div>
+        </div>
+        <div class="ann-limit" id="annLimitBox" hidden>
+          <div class="ann-limit-k">quota max</div>
+          <div class="ann-limit-v" id="annLimit">—</div>
+        </div>
+      </div>
+      <div class="ann-meta" id="annMeta"></div>
+      <div class="ann-wx" id="annWx" hidden></div>
+      <div class="demo-flag" id="demoFlag" hidden>Zone di esempio inventate · importa i dati reali in “Dati”</div>
+    </div>
+    <div class="ann-wxbox" id="annWxBox" hidden>
+      <div class="ann-wxbox-k">Meteo</div>
+      <div class="ann-wxbox-label" id="annWxLabel"></div>
+      <div class="ann-wxbox-why" id="annWxWhy"></div>
+      <div class="ann-wxbox-val" id="annWxVal"></div>
+      <div class="ann-wxbox-press" id="annWxPress" hidden></div>
+    </div>
+  </header>
+
+  <div id="map" role="application" aria-label="Mappa"></div>
+
+  <div class="fab-col">
+    <button class="fab" id="btnGps" aria-label="Attiva o centra la posizione" title="La mia posizione">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 1.5v3.2M12 19.3v3.2M1.5 12h3.2M19.3 12h3.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <button class="fab" id="btnAddHere" aria-label="Salva un punto qui" title="Salva punto">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 6.5v7M8.5 10h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+
+  <section id="sheet" class="collapsed">
+    <nav class="tabs" role="tablist">
+      <button role="tab" class="tab" data-tab="here" aria-selected="true">Qui</button>
+      <button role="tab" class="tab" data-tab="filters" aria-selected="false">Filtri</button>
+      <button role="tab" class="tab" data-tab="points" aria-selected="false">Punti</button>
+      <button role="tab" class="tab" data-tab="data" aria-selected="false">Dati</button>
+      <button class="tab-toggle" id="sheetToggle" aria-label="Espandi o riduci pannello">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </nav>
+
+    <div class="panel" data-panel="here">
+      <div id="hereTarget" class="here-target"></div>
+      <div id="hereList"></div>
+      <section id="wxCard" class="wx" aria-live="polite"></section>
+      <h3 class="sec">Zone vicine</h3>
+      <div id="nearList" class="near-list"></div>
+      <p class="fine">Tocca la mappa per ispezionare un punto. Tieni premuto per salvarlo.</p>
+    </div>
+
+    <div class="panel" data-panel="filters" hidden>
+      <h3 class="sec">Preferenze</h3>
+      <div class="pref-k">Schema colori</div>
+      <div class="seg" id="segPalette" role="group" aria-label="Schema colori">
+        <button type="button" data-palette="std" aria-pressed="true">Standard</button>
+        <button type="button" data-palette="cvd" aria-pressed="false">Daltonici (rosso/verde)</button>
+      </div>
+      <div class="pref-k">Tema</div>
+      <div class="seg three" id="segTheme" role="group" aria-label="Tema">
+        <button type="button" data-theme-opt="auto" aria-pressed="true">Automatico</button>
+        <button type="button" data-theme-opt="light" aria-pressed="false">Giorno</button>
+        <button type="button" data-theme-opt="dark" aria-pressed="false">Notte</button>
+      </div>
+      <p class="fine">Daltonici: viola = vietato o 0 m, blu = serve autorizzazione o 25 m, azzurro = 45 m, ambra = 60 m, grigio = libero. Automatico segue il giorno/notte del telefono.</p>
+      <h3 class="sec">Colora per</h3>
+      <div class="seg" id="segMode" role="group" aria-label="Colorazione zone">
+        <button type="button" data-mode="quota" aria-pressed="true">Quota max (come D-Flight)</button>
+        <button type="button" data-mode="tipo" aria-pressed="false">Tipo di restrizione</button>
+      </div>
+      <div id="legend" class="legend"></div>
+      <h3 class="sec">Categoria</h3>
+      <div id="fltCat" class="chk-list"></div>
+      <h3 class="sec">Quota massima</h3>
+      <div id="fltBand" class="chk-list"></div>
+      <h3 class="sec">Motivo</h3>
+      <div id="fltReason" class="chips"></div>
+      <h3 class="sec">Visualizzazione</h3>
+      <label class="row-chk"><input type="checkbox" id="fltExpired"> Mostra zone temporanee non attive ora</label>
+      <h3 class="sec">Limiti meteo del drone</h3>
+      <div class="lim-grid">
+        <label for="limWind">Vento max (m/s)</label><input id="limWind" type="number" inputmode="decimal" step="0.5" min="2" max="25">
+        <label for="limGust">Raffiche max (m/s)</label><input id="limGust" type="number" inputmode="decimal" step="0.5" min="2" max="30">
+        <label for="limTmin">Temperatura min (°C)</label><input id="limTmin" type="number" inputmode="decimal" step="1" min="-30" max="20">
+        <label for="limTmax">Temperatura max (°C)</label><input id="limTmax" type="number" inputmode="decimal" step="1" min="20" max="55">
+      </div>
+      <p class="fine">Valori tipici per un drone C0 da 250 g: vento fino a 10 m/s (36 km/h), temperatura 0–40 °C. Controlla il manuale del tuo drone.</p>
+      <label class="row-chk"><input type="checkbox" id="optWake"> Schermo sempre acceso</label>
+      <label class="row-chk"><input type="checkbox" id="optFollow" checked> Segui la mia posizione</label>
+      <p class="fine">I filtri cambiano solo la mappa. Gli avvisi in alto considerano sempre tutte le zone.</p>
+    </div>
+
+    <div class="panel" data-panel="points" hidden>
+      <form id="ptForm" class="pt-form" hidden>
+        <div class="pt-form-coords" id="ptFormCoords"></div>
+        <label for="ptName">Nome</label>
+        <input id="ptName" type="text" maxlength="60" required>
+        <label for="ptNote">Nota</label>
+        <input id="ptNote" type="text" maxlength="200" placeholder="es. decollo sul prato, parcheggio lato nord">
+        <div class="btn-row">
+          <button type="submit" class="btn primary">Salva punto</button>
+          <button type="button" class="btn" id="ptCancel">Annulla</button>
+        </div>
+      </form>
+      <div id="ptList"></div>
+      <div class="btn-row">
+        <button class="btn" id="ptExport">Esporta punti</button>
+        <label class="btn" for="ptImportFile">Importa punti</label>
+        <input type="file" id="ptImportFile" accept=".json,application/json" hidden>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="data" hidden>
+      <div id="dataInfo" class="data-info"></div>
+      <div id="syncInfo" class="data-msg" role="status"></div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnSync">Controlla aggiornamenti</button>
+        <label class="btn" for="zoneFile">Importa file a mano…</label>
+        <input type="file" id="zoneFile" accept=".json,.geojson,.gz,application/json,application/geo+json,application/gzip" hidden>
+      </div>
+      <p class="fine">Le zone sul sito sono una ricostruzione da fonti libere (regole ENAC ATM-09A, OurAirports, © OpenStreetMap contributors, openAIP, NOTAM), non i dati D-Flight. Restano sul telefono per l’uso senza rete. L’import a mano accetta anche il file D-Flight scaricato col tuo account (.json.gz, ED-269), ED-318 e GeoJSON: resta solo sul tuo telefono.</p>
+      <div class="btn-row">
+        <button class="btn" id="btnDemoHere">Esempio intorno a me</button>
+        <button class="btn" id="btnDemo">Esempio su Firenze</button>
+        <button class="btn danger" id="btnClear">Cancella zone</button>
+      </div>
+      <div id="dataMsg" class="data-msg" role="status"></div>
+      <h3 class="sec">Mappa senza rete</h3>
+      <p class="fine">L’app, le zone e il meteo già scaricato funzionano anche offline. Della mappa restano disponibili le parti che hai già visto con la rete: le regole d’uso dei server OpenStreetMap vietano di scaricare aree in anticipo.</p>
+      <h3 class="sec">Prima di volare</h3>
+      <p class="fine">QuotaZone è uno strumento personale di consultazione. Non sostituisce la verifica ufficiale su <a href="https://www.d-flight.it" target="_blank" rel="noopener">D-Flight</a>, i NOTAM e le autorizzazioni ENAC. I dati importati valgono alla data del file.</p>
+      <p class="fine">Mappa © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>. Le tessere già viste restano disponibili offline.</p>
+    </div>
+  </section>
+</div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/turf.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
